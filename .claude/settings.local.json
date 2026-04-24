@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/streamlit run:*)",
+      "Bash(.venv/Scripts/python -c ':*)",
+      "Bash(.venv/Scripts/python -c \"import sklearn, scipy; print\\('sklearn', sklearn.__version__, 'scipy', scipy.__version__\\)\")",
+      "WebSearch",
+      "Bash(ls:*)",
+      "Bash(pkill -f streamlit)",
+      "Bash(taskkill //F //IM streamlit.exe)",
+      "Bash(.venv/Scripts/python -c \"import streamlit; print\\(streamlit.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import scipy.stats; from sklearn.linear_model import LinearRegression; print\\('ok'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(.venv/Scripts/python *)"
+    ]
+  }
+}
