@@ -99,9 +99,9 @@ Always use compute_statistic to run code — never just show it without executin
   Rolling correlation   : s1.rolling(window).corr(s2)
 
   Lagged regression     : import statsmodels.api as sm
-                          df = pd.DataFrame({'y': prices['COPX'].pct_change(),
+                          df = pd.DataFrame({{'y': prices['COPX'].pct_change(),
                                              'x': prices['^VIX'],
-                                             'x_lag1': prices['^VIX'].shift(1)}).dropna()
+                                             'x_lag1': prices['^VIX'].shift(1)}}).dropna()
                           res = sm.OLS(df['y'], sm.add_constant(df[['x','x_lag1']])).fit()
                           result = res.summary().as_text()
 
