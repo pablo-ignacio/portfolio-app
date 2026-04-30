@@ -324,6 +324,42 @@ if "COPX" in prices.columns:
 else:
     st.info("COPX not in universe — add it to the ticker list to see its drawdown chart.")
 
+# ── SLV Drawdown chart ────────────────────────────────────────────────────────
+if "SLV" in prices.columns:
+    _slv_series = prices["SLV"].dropna()
+    _slv_cummax = _slv_series.cummax()
+    _slv_dd_series = _slv_series / _slv_cummax - 1.0
+    _slv_dd_current = float(_slv_dd_series.iloc[-1])
+
+    fig_slv_dd, ax_slv_dd = plt.subplots(figsize=(10, 3))
+    ax_slv_dd.fill_between(_slv_dd_series.index, _slv_dd_series.values * 100, 0,
+                           where=(_slv_dd_series.values < 0),
+                           color="slategray", alpha=0.55, label="SLV Drawdown")
+    ax_slv_dd.axhline(-10, color="darkslategray", linewidth=1.2, linestyle="--", label="−10% threshold")
+    ax_slv_dd.axhline(0, color="black", linewidth=0.6)
+    ax_slv_dd.set_ylabel("Drawdown (%)")
+    ax_slv_dd.set_title("SLV Rolling Drawdown from All-Time High")
+    ax_slv_dd.legend(loc="lower left", fontsize=9)
+    ax_slv_dd.grid(True, alpha=0.3)
+
+    _slv_last_x = _slv_dd_series.index[-1]
+    _slv_last_y = _slv_dd_current * 100
+    ax_slv_dd.plot(_slv_last_x, _slv_last_y, "o", color="darkslategray", markersize=5, zorder=5)
+    ax_slv_dd.annotate(
+        f"{_slv_last_y:.1f}%",
+        xy=(_slv_last_x, _slv_last_y),
+        xytext=(18, -18),
+        textcoords="offset points",
+        fontsize=9,
+        color="darkslategray",
+        arrowprops=dict(arrowstyle="-", color="darkslategray", lw=0.8),
+    )
+
+    plt.tight_layout()
+    st.pyplot(fig_slv_dd)
+else:
+    st.info("SLV not in universe — add it to the ticker list to see its drawdown chart.")
+
 # ── Lowest drawdown table ─────────────────────────────────────────────────────
 st.subheader("10 Most Beaten-Down Assets Right Now",
     help="Current drawdown = today's price / all-time high up to today − 1. "
