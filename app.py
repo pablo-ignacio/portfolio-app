@@ -21,7 +21,7 @@ from data_api import get_prices, get_etf_news_why
 from strategy import compute_target_weights
 from backtest import run_backtest
 from portfolios import build_portfolio
-from metrics import compute_metrics, PCT_METRICS, FLOAT_METRICS, compute_undervaluation, compute_overvaluation, compute_peace_dividend
+from metrics import compute_metrics, PCT_METRICS, FLOAT_METRICS, compute_undervaluation, compute_overvaluation
 from etf_info import ticker_label, ETF_INFO
 from alpha_strategy import run_annual_momentum
 from trend_strategy import run_trend_following, CROSS_ASSET_UNIVERSE, SAFE_HAVEN_DEFAULT
@@ -109,11 +109,6 @@ with st.spinner("Downloading data and running model..."):
     # ── Build all comparison portfolios ──────────────────────────────────────
     COMPARISON_METHODS = [
         "Inverse Volatility",
-        "Equal Weight",
-        "Rank Weight",
-        "Softmax",
-        "Min Variance",
-        "Mean-Variance",
     ]
 
     comparison_results = {}
@@ -146,7 +141,6 @@ with st.spinner("Downloading data and running model..."):
     # Undervaluation scoring across full universe
     uv_df = compute_undervaluation(prices_etf)
     ov_df = compute_overvaluation(prices_etf)
-    pd_df = compute_peace_dividend(prices_etf)
 
     # Cross-asset trend following strategy
     _trend = run_trend_following(prices_etf, rebalance_freq="ME")
@@ -360,34 +354,6 @@ if "SLV" in prices.columns:
 else:
     st.info("SLV not in universe — add it to the ticker list to see its drawdown chart.")
 
-# ── Lowest drawdown table ─────────────────────────────────────────────────────
-st.subheader("10 Most Beaten-Down Assets Right Now",
-    help="Current drawdown = today's price / all-time high up to today − 1. "
-         "The more negative, the further the asset is from its peak. "
-         "Only investable ETFs are included.")
-
-_dd_records = []
-for _t in prices_etf.columns:
-    _s = prices_etf[_t].dropna()
-    if len(_s) < 20:
-        continue
-    _dd_now = float(_s.iloc[-1] / _s.cummax().iloc[-1] - 1.0)
-    _dd_records.append({"Ticker": _t, "Current Drawdown": _dd_now})
-
-_dd_table = (
-    pd.DataFrame(_dd_records)
-    .sort_values("Current Drawdown", ascending=True)
-    .head(10)
-    .reset_index(drop=True)
-)
-_dd_table["Rank"] = range(1, len(_dd_table) + 1)
-_dd_table["Name"] = _dd_table["Ticker"].map(ticker_label)
-_dd_table["Current Drawdown"] = _dd_table["Current Drawdown"].map(lambda x: f"{x:.1%}")
-st.dataframe(
-    _dd_table[["Rank", "Name", "Current Drawdown"]],
-    use_container_width=True,
-    hide_index=True,
-)
 
 # ── HYG/IEF credit spread proxy chart ────────────────────────────────────────
 if "HYG" in prices.columns and "IEF" in prices.columns:
@@ -421,11 +387,6 @@ st.header("Portfolio Comparison Table",
 # Build metrics for each comparison method
 DISPLAY_NAMES = {
     "Inverse Volatility": "Inv. Vol",
-    "Equal Weight": "Eq. Weight",
-    "Rank Weight": "Rank Wt",
-    "Softmax": "Softmax",
-    "Min Variance": "Min Var",
-    "Mean-Variance": "Mean-Var",
 }
 
 metric_rows = {}
@@ -511,13 +472,8 @@ for idx in summary_df.index:
 
 COLUMN_HELP = {
     "SPY":          "Buy-and-hold SPY. 100% allocated to the S&P 500 at all times — used as the benchmark.",
-    "Trend Follow": "Cross-asset trend following with absolute momentum. Universe: SPY, TLT, GLD, DBC, VNQ, EFA, EEM. Each month, holds only assets with a positive 12-month return (absolute momentum filter), weighted by rank. When nothing qualifies, moves 100% to IEF (short-term bonds). Improves Sharpe by cutting large drawdowns and diversifying across truly uncorrelated asset classes.",
-    "Inv. Vol":   "Selects the top-N ETFs by risk-adjusted momentum signal, then allocates more weight to the less volatile ones (weight ∝ 1/volatility). Steadier trends get larger positions.",
-    "Eq. Weight": "Selects the top-N ETFs by signal, then splits capital equally among them. Simple and diversified.",
-    "Rank Wt":    "Selects the top-N ETFs by signal, then weights them proportionally to their rank — the highest-ranked ETF gets N points, the second gets N-1, and so on.",
-    "Softmax":    "Selects the top-N ETFs by signal, then weights them using exp(alpha × signal). Higher alpha concentrates more capital in the top-ranked ETF.",
-    "Min Var":    "Optimises weights to minimise portfolio variance using a Ledoit-Wolf shrinkage covariance matrix. Ignores expected returns — purely risk-minimising.",
-    "Mean-Var":   "Maximises a utility function (expected return − 0.5 × risk_aversion × variance) using the risk-adjusted signal as the expected return proxy and a Ledoit-Wolf covariance matrix.",
+    "Trend Follow": "Cross-asset trend following with absolute momentum. Universe: SPY, TLT, GLD, DBC, VNQ, EFA, EEM. Each month, holds only assets with a positive 12-month return (absolute momentum filter), weighted by rank. When nothing qualifies, moves 100% to IEF (short-term bonds).",
+    "Inv. Vol":     "Selects the top-N ETFs by risk-adjusted momentum signal, then allocates more weight to the less volatile ones (weight ∝ 1/volatility). Steadier trends get larger positions.",
 }
 
 st.dataframe(
@@ -609,108 +565,6 @@ else:
     st.info("Not enough price history to compute overvaluation scores.")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PEACE DIVIDEND SCORE
-# ═══════════════════════════════════════════════════════════════════════════════
-st.header("Peace Dividend Score — If the Iran War Ends Tomorrow")
-st.caption(
-    "Ranks every ETF by how much it should rally if oil prices drop sharply and geopolitical fear unwinds. "
-    "**Score = 50% × (−oil beta) + 30% × (distance below 200DMA) + 20% × (−gold correlation).** "
-    "High scorers: oil-importing economies (Japan, India, EM) and beaten-down risk assets. "
-    "Low scorers: energy ETFs (XLE, USO), gold (GLD), and long bonds."
-)
-
-if not pd_df.empty:
-    top5_pd = pd_df.head(5).copy()
-
-    # Format for display
-    top5_pd_display = top5_pd.copy()
-    top5_pd_display["Ticker"]           = top5_pd_display["Ticker"].map(ticker_label)
-    top5_pd_display["Oil Beta"]         = top5_pd_display["Oil Beta"].map(lambda x: f"{x:.2f}")
-    top5_pd_display["Dist vs 200DMA"]   = top5_pd_display["Dist vs 200DMA"].map(lambda x: f"{x:.2%}")
-    top5_pd_display["Gold Corr"]        = top5_pd_display["Gold Corr"].map(lambda x: f"{x:.2f}")
-    top5_pd_display["Peace Dividend Score"] = top5_pd_display["Peace Dividend Score"].map(lambda x: f"{x:.2f}")
-
-    st.dataframe(
-        top5_pd_display,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Ticker":               st.column_config.TextColumn("Ticker", help="Double-click to see full ETF description"),
-            "Oil Beta":             st.column_config.TextColumn("Oil Beta", help="Sensitivity to oil price moves. Negative = rallies when oil falls."),
-            "Dist vs 200DMA":       st.column_config.TextColumn("Dist vs 200DMA", help="How far current price is below its 200-day moving average. More negative = more suppressed."),
-            "Gold Corr":            st.column_config.TextColumn("Gold Corr", help="Correlation with gold returns. Negative = moves opposite to gold (risk-on)."),
-            "Peace Dividend Score": st.column_config.TextColumn("Score", help="Composite score. Higher = bigger expected rally if oil drops and fear unwinds."),
-        },
-    )
-
-    # Normalized price chart for top 5
-    top5_pd_tickers = top5_pd["Ticker"].tolist()
-    fig_pd, ax_pd = plt.subplots(figsize=(10, 4))
-    for ticker in top5_pd_tickers:
-        if ticker not in prices.columns:
-            continue
-        p = prices[ticker].dropna()
-        normalized = p / p.iloc[0]
-        ax_pd.plot(normalized.index, normalized.values, label=ticker_label(ticker), linewidth=1.5)
-    ax_pd.axhline(1.0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
-    ax_pd.set_title("Top 5 Peace Dividend ETFs — Normalized Price (base = 1)")
-    ax_pd.legend()
-    ax_pd.grid(True, alpha=0.3)
-    st.pyplot(fig_pd)
-else:
-    st.info("USO or GLD not available — Peace Dividend Score requires both in the universe.")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MOST VOLATILE ETFs
-# ═══════════════════════════════════════════════════════════════════════════════
-st.header("Most Volatile ETFs Right Now")
-st.caption(
-    "Annualised volatility computed from daily returns over the trailing 252 trading days. "
-    "High volatility means larger day-to-day price swings — higher potential return but higher risk."
-)
-
-_vol_records = []
-for _t in prices_etf.columns:
-    _p = prices_etf[_t].dropna()
-    if len(_p) < 253:
-        continue
-    _daily_rets = _p.pct_change().dropna().iloc[-252:]
-    _ann_vol = float(_daily_rets.std() * np.sqrt(252))
-    _vol_records.append({"Ticker": _t, "Ann. Volatility": _ann_vol})
-
-_vol_df = (
-    pd.DataFrame(_vol_records)
-    .sort_values("Ann. Volatility", ascending=False)
-    .reset_index(drop=True)
-)
-_top5_vol = _vol_df.head(5)
-
-if not _top5_vol.empty:
-    _top5_vol_display = _top5_vol.copy()
-    _top5_vol_display["Ticker"] = _top5_vol_display["Ticker"].map(ticker_label)
-    _top5_vol_display["Ann. Volatility"] = _top5_vol_display["Ann. Volatility"].map(lambda x: f"{x:.1%}")
-    st.dataframe(_top5_vol_display, use_container_width=True, hide_index=True,
-        column_config={
-            "Ticker":         st.column_config.TextColumn("Ticker", help="Double-click to see full ETF description"),
-            "Ann. Volatility": st.column_config.TextColumn("Ann. Volatility (252d)", help="Standard deviation of daily returns × √252"),
-        })
-
-    fig_vol, ax_vol = plt.subplots(figsize=(10, 4))
-    for _t in _top5_vol["Ticker"].tolist():
-        if _t not in prices.columns:
-            continue
-        _p = prices[_t].dropna()
-        _norm = _p / _p.iloc[0]
-        ax_vol.plot(_norm.index, _norm.values, label=ticker_label(_t), linewidth=1.5)
-    ax_vol.axhline(1.0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
-    ax_vol.set_title("Top 5 Most Volatile ETFs — Normalized Price (base = 1)")
-    ax_vol.legend()
-    ax_vol.grid(True, alpha=0.3)
-    st.pyplot(fig_vol)
-else:
-    st.info("Not enough price history to compute volatility.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -749,48 +603,6 @@ ax_trend.legend()
 ax_trend.grid(True, alpha=0.3)
 st.pyplot(fig_trend)
 
-# Rebalance log
-st.subheader("Trend Following — Monthly Rebalance Log",
-    help="Each row shows what the strategy held that month and why. "
-         "'Safe Haven' months are when every asset had negative 12M momentum — the portfolio moved to IEF.")
-_trend_log = _trend["rebalance_log"]
-if _trend_log:
-    _trend_rows = []
-    for entry in reversed(_trend_log):
-        for rank_i, (tkr, wt) in enumerate(entry["weights"].items(), start=1):
-            _trend_rows.append({
-                "Month":         str(entry["date"]),
-                "Rank":          rank_i,
-                "Ticker":        ticker_label(tkr),
-                "Weight":        f"{wt:.1%}",
-                "12M Ret":       f"{entry['12M ret'].get(tkr, 0):.1%}",
-                "Safe Haven?":   "Yes" if entry.get("in_safe_haven") else "No",
-            })
-    st.dataframe(pd.DataFrame(_trend_rows), use_container_width=True, hide_index=True)
-
-# Ticker frequency
-st.subheader("Ticker Frequency — Cross-Asset Trend (how often each asset class was held)")
-st.caption(
-    "How many months each asset was held in the Cross-Asset Trend Following portfolio "
-    "over the entire backtest. An asset is only held in months where its trailing "
-    "12-month return was positive — so high frequency means it has been in an uptrend "
-    "for most of the period. Low frequency means it spends a lot of time in a downtrend "
-    "and gets replaced by the safe-haven bond (IEF). "
-    "This chart helps you see which asset classes have driven the strategy's returns."
-)
-_trend_tc = _trend["ticker_counts"]
-if not _trend_tc.empty:
-    _trend_labels = [ticker_label(t) for t in _trend_tc.index]
-    fig_tfreq, ax_tfreq = plt.subplots(figsize=(10, max(3, len(_trend_tc) * 0.4)))
-    bars_t = ax_tfreq.barh(_trend_labels[::-1], _trend_tc.values[::-1], color="mediumseagreen", alpha=0.8)
-    ax_tfreq.set_xlabel("Number of months held")
-    ax_tfreq.set_title("ETF Frequency in Cross-Asset Trend Following Portfolio")
-    ax_tfreq.grid(True, axis="x", alpha=0.3)
-    for bar, val in zip(bars_t, _trend_tc.values[::-1]):
-        ax_tfreq.text(bar.get_width() + 0.1, bar.get_y() + bar.get_height() / 2,
-                      str(int(val)), va="center", fontsize=9)
-    plt.tight_layout()
-    st.pyplot(fig_tfreq)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -851,52 +663,6 @@ if _alpha_log:
         _mom_label = "Normal Regime — Momentum Weights (latest month)"
         st.caption(f"**{_mom_label}**: {_latest_entry['date']}")
 
-# ── Monthly rebalance log ─────────────────────────────────────────────────────
-st.subheader("Monthly Rebalance Log",
-    help=(
-        "At the end of each month the strategy looks back at the trailing 12-month total return "
-        "for every ETF in your universe and picks the top 5. "
-        "This table shows exactly which ETFs were selected, how much weight each received (rank-based), "
-        "and what their prior 12-month return was at the moment of the decision. "
-        "Only data available before that date was used — no future information leaks in."
-    ))
-st.caption("What the strategy held each month, based solely on data available at that time.")
-_log = _alpha["rebalance_log"]
-if _log:
-    _log_rows = []
-    for entry in reversed(_log):
-        for rank_i, (tkr, wt) in enumerate(entry["weights"].items(), start=1):
-            _log_rows.append({
-                "Month":   str(entry["date"]),
-                "Rank":    rank_i,
-                "Ticker":  ticker_label(tkr),
-                "Weight":  f"{wt:.1%}",
-                "12M Ret": f"{entry['12M ret'][tkr]:.1%}",
-            })
-    st.dataframe(pd.DataFrame(_log_rows), use_container_width=True, hide_index=True)
-
-# ── Ticker frequency bar chart ────────────────────────────────────────────────
-st.subheader("Ticker Frequency Across All Monthly Rebalances")
-st.caption(
-    "How many years each ETF appeared in the top-5 selection. "
-    "Consistently appearing tickers are the long-run momentum leaders in your universe."
-)
-
-_tc = _alpha["ticker_counts"]
-if not _tc.empty:
-    _labels = [ticker_label(t) for t in _tc.index]
-    fig_freq, ax_freq = plt.subplots(figsize=(12, max(4, len(_tc) * 0.4)))
-    bars = ax_freq.barh(_labels[::-1], _tc.values[::-1], color="steelblue", alpha=0.8)
-    ax_freq.set_xlabel("Number of months held")
-    ax_freq.set_title("ETF Frequency in Monthly Momentum Portfolio")
-    ax_freq.grid(True, axis="x", alpha=0.3)
-    for bar, val in zip(bars, _tc.values[::-1]):
-        ax_freq.text(bar.get_width() + 0.1, bar.get_y() + bar.get_height() / 2,
-                     str(int(val)), va="center", fontsize=9)
-    plt.tight_layout()
-    st.pyplot(fig_freq)
-else:
-    st.info("No ticker frequency data available.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -976,98 +742,6 @@ st.download_button(
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BACKTEST
-# ═══════════════════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════════════════
-# MODEL PIPELINE DIAGNOSTICS
-# ═══════════════════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════════════════
-# FLAT WITH SPIKES
-# ═══════════════════════════════════════════════════════════════════════════════
-st.header("ETFs: Flat Overall but With Major Spikes",
-    help="ETFs that started and ended near the same level but experienced one or two large excursions along the way. Score = spike height × reversion fraction × flatness. These can signal range-bound assets or structural mean-reverters.")
-
-_spike_records = []
-for _ticker in prices_etf.columns:
-    _p = prices[_ticker].dropna()
-    if len(_p) < 252:
-        continue
-    _norm = _p / _p.iloc[0]
-    _end   = float(_norm.iloc[-1])
-    _peak  = float(_norm.max())
-    _spike = _peak - 1.0
-    _reversion = (_peak - _end) / _peak if _peak > 0 else 0
-    _flatness  = 1 / (1 + abs(_end - 1.0))
-    if _spike < 0.30:
-        continue
-    _spike_records.append({
-        "Ticker": _ticker,
-        "score": _spike * _reversion * _flatness,
-    })
-
-_spike_df = pd.DataFrame(_spike_records).sort_values("score", ascending=False)
-_top5_spike = _spike_df.head(5)["Ticker"].tolist()
-
-if _top5_spike:
-    fig_sp, ax_sp = plt.subplots(figsize=(10, 4))
-    for _t in _top5_spike:
-        if _t not in prices.columns:
-            continue
-        _p = prices[_t].dropna()
-        _normalized = _p / _p.iloc[0]
-        ax_sp.plot(_normalized.index, _normalized.values, label=ticker_label(_t), linewidth=1.5)
-    ax_sp.axhline(1.0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
-    ax_sp.set_title("Flat Overall but With Major Spikes — Normalized Price (base = 1)")
-    ax_sp.legend()
-    ax_sp.grid(True, alpha=0.3)
-    st.pyplot(fig_sp)
-else:
-    st.info("Not enough data to identify flat-with-spikes ETFs.")
-
-# ── Flat Overall but With Significant Drops ───────────────────────────────────
-st.subheader("Flat Overall but With Significant Drops")
-st.caption(
-    "ETFs whose current price is close to where they started, but suffered one or more sharp drawdowns along the way. "
-    "Score = drop depth × recovery fraction × flatness. Minimum 20% drop required."
-)
-
-_drop_records = []
-for _ticker in prices_etf.columns:
-    _p = prices[_ticker].dropna()
-    if len(_p) < 252:
-        continue
-    _norm   = _p / _p.iloc[0]
-    _end    = float(_norm.iloc[-1])
-    _trough = float(_norm.min())
-    _drop   = 1.0 - _trough                                          # depth of deepest drop
-    _recovery = (_end - _trough) / (1.0 - _trough) if _drop > 0 else 0  # how much it bounced back
-    _flatness  = 1 / (1 + abs(_end - 1.0))
-    if _drop < 0.20:
-        continue
-    _drop_records.append({
-        "Ticker": _ticker,
-        "score": _drop * _recovery * _flatness,
-    })
-
-_drop_df    = pd.DataFrame(_drop_records).sort_values("score", ascending=False)
-_top5_drops = _drop_df.head(5)["Ticker"].tolist()
-
-if _top5_drops:
-    fig_dr, ax_dr = plt.subplots(figsize=(10, 4))
-    for _t in _top5_drops:
-        if _t not in prices.columns:
-            continue
-        _p = prices[_t].dropna()
-        _normalized = _p / _p.iloc[0]
-        ax_dr.plot(_normalized.index, _normalized.values, label=ticker_label(_t), linewidth=1.5)
-    ax_dr.axhline(1.0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
-    ax_dr.set_title("Flat Overall but With Significant Drops — Normalized Price (base = 1)")
-    ax_dr.legend()
-    ax_dr.grid(True, alpha=0.3)
-    st.pyplot(fig_dr)
-else:
-    st.info("Not enough data to identify flat-with-drops ETFs.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
