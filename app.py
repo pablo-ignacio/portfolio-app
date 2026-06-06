@@ -28,6 +28,11 @@ from trend_strategy import run_trend_following, CROSS_ASSET_UNIVERSE, SAFE_HAVEN
 from chat_agent import run_agent
 
 st.set_page_config(page_title="Portofolio", layout="wide")
+
+_pwd = st.text_input("Password", type="password")
+if _pwd != "portofolio_app":
+    st.stop()
+
 st.title("Portofolio")
 st.write("Momentum + inverse-vol ETF strategy")
 
