@@ -179,8 +179,12 @@ spy_price_today = spy_series.iloc[-1]
 spy_ma_today = spy_ma_series.iloc[-1]
 spy_risk_on_today = bool(spy_price_today > spy_ma_today)
 
-spy_price_rb = spy_series.loc[latest_rb]
-spy_ma_rb = spy_ma_series.loc[latest_rb]
+# resample("ME") produces calendar month-end dates; map to nearest actual trading day
+latest_rb_td = prices.index.asof(latest_rb)
+prev_rb_td = prices.index.asof(prev_rb) if prev_rb is not None else None
+
+spy_price_rb = spy_series.loc[latest_rb_td]
+spy_ma_rb = spy_ma_series.loc[latest_rb_td]
 spy_risk_on_rb = bool(spy_price_rb > spy_ma_rb)
 
 today_weights = target_weights.loc[latest_rb].reindex(user_tickers, fill_value=0.0)
@@ -198,7 +202,7 @@ rets_px = px.pct_change()
 momentum_raw = px / px.shift(MOMENTUM_LOOKBACK_DAYS) - 1.0
 vol_raw = rets_px.rolling(VOL_LOOKBACK_DAYS).std()
 signal_raw = momentum_raw / vol_raw.replace(0, np.nan)
-latest_signal = signal_raw.loc[latest_rb].sort_values(ascending=False)
+latest_signal = signal_raw.loc[latest_rb_td].sort_values(ascending=False)
 positive_signal_tickers = latest_signal[latest_signal > 0].index.tolist()
 
 
